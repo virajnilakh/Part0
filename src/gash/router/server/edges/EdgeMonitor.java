@@ -147,6 +147,7 @@ public class EdgeMonitor implements EdgeListener, Runnable {
 		hb.setTime(System.currentTimeMillis());
 		LeaderStatus.Builder status=LeaderStatus.newBuilder();
 		status.setLeaderId(state.getConf().getNodeId());
+		status.setLeaderHost(state.getIpAddress());
 		WorkMessage.Builder wb = WorkMessage.newBuilder();
 		wb.setHeader(hb);
 		wb.setSecret(0);
@@ -308,7 +309,7 @@ private static class DeadFollowerTimer extends TimerTask{
 	}
 
 	public void setTimer(int nodeId) {
-		int randomTimeout=(2000+(new Random()).nextInt(3500))*1000;
+		int randomTimeout=(2000+(new Random()).nextInt(3500))*5;
         Timer t=new Timer();
         t.schedule(new DeadFollowerTimer(nodeId),(long)randomTimeout,(long)randomTimeout);
 		timer.put(nodeId,t );

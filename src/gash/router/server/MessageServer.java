@@ -19,6 +19,7 @@ import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.net.UnknownHostException;
 import java.util.HashMap;
 
 import org.codehaus.jackson.map.ObjectMapper;
@@ -63,7 +64,7 @@ public class MessageServer {
 	public void release() {
 	}
 
-	public void startServer() {
+	public void startServer() throws UnknownHostException {
 		StartWorkCommunication comm = new StartWorkCommunication(conf);
 		logger.info("Work starting");
 
@@ -129,7 +130,6 @@ public class MessageServer {
 	 */
 	private static class StartCommandCommunication implements Runnable {
 		RoutingConf conf;
-		ServerState state;
 
 		public StartCommandCommunication(RoutingConf conf) {
 			this.conf = conf;
@@ -186,7 +186,7 @@ public class MessageServer {
 	private static class StartWorkCommunication implements Runnable {
 		ServerState state;
 
-		public StartWorkCommunication(RoutingConf conf) {
+		public StartWorkCommunication(RoutingConf conf) throws UnknownHostException {
 			if (conf == null)
 				throw new RuntimeException("missing conf");
 
@@ -242,8 +242,8 @@ public class MessageServer {
 
 				// shutdown monitor
 				EdgeMonitor emon = state.getEmon();
-				if (emon != null)
-					emon.shutdown();
+				//if (emon != null)
+					//emon.shutdown();
 			}
 		}
 	}

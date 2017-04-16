@@ -15,47 +15,66 @@
  */
 package gash.router.server;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import gash.router.server.edges.EdgeInfo;
+import com.google.protobuf.ByteString;
+
+import gash.router.container.RoutingConf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import pipe.common.Common.Failure;
+import pipe.election.Election.LeaderStatus.LeaderState;
 import pipe.work.Work.Heartbeat;
 import pipe.work.Work.Task;
 import pipe.work.Work.WorkMessage;
 import pipe.work.Work.WorkState;
+import routing.Pipe.CommandMessage;
 
 /**
  * The message handler processes json messages that are delimited by a 'newline'
- * 
+ *
  * TODO replace println with logging!
- * 
+ *
  * @author gash
- * 
+ *
  */
 public class WorkHandler extends SimpleChannelInboundHandler<WorkMessage> {
 	protected static Logger logger = LoggerFactory.getLogger("work");
+	protected ArrayList<CommandMessage> lstMsg = new ArrayList<CommandMessage>();
+	protected ArrayList<ByteString> chunkedFile = new ArrayList<ByteString>();
 	protected ServerState state;
 	protected boolean debug = false;
-	
+	protected RoutingConf conf;
 	public WorkHandler(ServerState state) {
 		if (state != null) {
 			this.state = state;
 		}
 	}
+	
+	public WorkHandler(RoutingConf conf) {
+		if (conf != null) {
+			this.conf = conf;
+		}
+	}
 
 	/**
 	 * override this method to provide processing behavior. T
-	 * 
+	 *
 	 * @param msg
 	 */
 	public void handleMessage(WorkMessage msg, Channel channel) {
 		if (msg == null) {
 			// TODO add logging
-			System.out.println("ERROR: Unexpected content - " + msg);
+			System.out.println("ERROR: Unexpected content  - " + msg);
 			return;
 		}
 
@@ -64,19 +83,28 @@ public class WorkHandler extends SimpleChannelInboundHandler<WorkMessage> {
 
 		// TODO How can you implement this without if-else statements?
 		try {
-			if (msg.hasBeat()) {
+			 if(msg.getHeader().hasElection()){
+				System.out.println("Processing the message:");
+				state.handleMessage(channel,msg);
+			}else if(msg.getLeaderStatus().getState()==LeaderState.LEADERALIVE){
+				System.out.println("Heartbeat from leader "+msg.getLeaderStatus().getLeaderId()+"...Resetting the timmer:");
+				state.getElecHandler().getTimer().cancel();
+				state.getElecHandler().setTimer();
+				
+			}else if (msg.hasBeat()) {
 				Heartbeat hb = msg.getBeat();
 				logger.info("heartbeat from " + msg.getHeader().getNodeId());
+				state.getEmon().getTimer(msg.getHeader().getNodeId()).cancel();
+				state.getEmon().setTimer(msg.getHeader().getNodeId());
 			} else if (msg.hasPing()) {
 				logger.info("ping from " + msg.getHeader().getNodeId());
 				boolean p = msg.getPing();
 				WorkMessage.Builder rb = WorkMessage.newBuilder();
 				rb.setPing(true);
-				//state.getEmon().sendData(msg);
 				channel.write(rb.build());
 			} else if (msg.hasErr()) {
 				Failure err = msg.getErr();
-				logger.info("failure from " + msg.getHeader().getNodeId());
+				logger.error("failure from " + msg.getHeader().getNodeId());
 				// PrintUtil.printFailure(err);
 			} else if (msg.hasTask()) {
 				Task t = msg.getTask();
@@ -102,7 +130,7 @@ public class WorkHandler extends SimpleChannelInboundHandler<WorkMessage> {
 	 * a message was received from the server. Here we dispatch the message to
 	 * the client's thread pool to minimize the time it takes to process other
 	 * messages.
-	 * 
+	 *
 	 * @param ctx
 	 *            The channel the message was received from
 	 * @param msg
@@ -111,6 +139,71 @@ public class WorkHandler extends SimpleChannelInboundHandler<WorkMessage> {
 	@Override
 	protected void channelRead0(ChannelHandlerContext ctx, WorkMessage msg) throws Exception {
 		handleMessage(msg, ctx.channel());
+	}
+	protected void channelRead0(ChannelHandlerContext ctx, CommandMessage msg) throws Exception {
+		handleMessage(msg, ctx.channel());
+	}
+
+	private void handleMessage(CommandMessage msg, Channel channel) throws IOException {
+		// TODO Auto-generated method stub
+		
+		if (msg == null) {
+			System.out.println("ERROR: Unexpected content - " + msg);
+			return;
+		}
+		PrintUtil.printCommand(msg);
+		lstMsg.add(msg);
+		
+		if (chunkedFile.size() == msg.getReqMsg().getRwb().getNumOfChunks()) {
+
+			// Sorting
+			Collections.sort(lstMsg, new Comparator<CommandMessage>() {
+				@Override
+				public int compare(CommandMessage msg1, CommandMessage msg2) {
+					return Integer.compare(msg1.getReqMsg().getRwb().getChunk().getChunkId(),
+							msg2.getReqMsg().getRwb().getChunk().getChunkId());
+				}
+			});
+
+			for (CommandMessage message : lstMsg) {
+				chunkedFile.add(message.getReqMsg().getRwb().getChunk().getChunkData());
+			}
+
+			File file = new File("C:\\Gossamer\\" + msg.getReqMsg().getRwb().getFilename());
+			file.createNewFile();
+
+			FileOutputStream outputStream = new FileOutputStream(file);
+			ByteString bs = ByteString.copyFrom(chunkedFile);
+			outputStream.write(bs.toByteArray());
+			outputStream.flush();
+			outputStream.close();
+			System.out.println("File done");
+			long end = System.currentTimeMillis();
+			System.out.println("End time");
+			System.out.println(end);
+		}
+		
+		try {
+			if (msg.hasPing()) {
+				logger.info("ping from " + msg.getHeader().getNodeId());
+			} else if (msg.hasMessage()) {
+				logger.info(msg.getMessage());
+			} else {
+			}
+
+		} catch (Exception e) {
+			// TODO add logging
+			Failure.Builder eb = Failure.newBuilder();
+			eb.setId(conf.getNodeId());
+			eb.setRefId(msg.getHeader().getNodeId());
+			eb.setMessage(e.getMessage());
+			CommandMessage.Builder rb = CommandMessage.newBuilder(msg);
+			rb.setErr(eb);
+			channel.write(rb.build());
+		}
+
+		System.out.flush();
+		
 	}
 
 	@Override

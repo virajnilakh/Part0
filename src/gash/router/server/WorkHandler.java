@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Timer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -96,7 +97,10 @@ public class WorkHandler extends SimpleChannelInboundHandler<WorkMessage> {
 			}else if (msg.hasBeat()) {
 				Heartbeat hb = msg.getBeat();
 				logger.info("heartbeat from " + msg.getHeader().getNodeId());
-				state.getEmon().getTimer(msg.getHeader().getNodeId()).cancel();
+				Timer t=state.getEmon().getTimer(msg.getHeader().getNodeId());
+				t.cancel();
+				t=null;
+				
 				state.getEmon().setTimer(msg.getHeader().getNodeId());
 			} else if (msg.hasPing()) {
 				logger.info("ping from " + msg.getHeader().getNodeId());
